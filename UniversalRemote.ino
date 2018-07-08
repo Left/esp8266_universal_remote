@@ -26,26 +26,6 @@ WiFiClient client;
 
 IRrecv irrecv(RECV_PIN); // 
 
-void doConnect() {
-  client.stop();
-  client.connect("192.168.121.72", 6600);
-
-  while (!client.available()) {
-    delay(50);
-  }
-
-  Serial.println("Connected!");
-
-  while (client.connected() && client.available()) {
-    char c = client.read();
-    Serial.print(c);
-    if (c == '\n') {
-      break;
-    }
-  }
-
-}
-
 void stringToFile(const String& fileName, const String& value) {
   File f = SPIFFS.open(fileName.c_str(), "w");
   f.write((uint8_t*)value.c_str(), value.length());
@@ -68,6 +48,14 @@ String fileToString(const String& fileName) {
 
 std::auto_ptr<AsyncWebServer> setupServer;
 std::auto_ptr<WebSocketsServer> webSocket;
+
+void debugPrint(const String& str) {
+  if (webSocket.get()) {
+    String toSend;
+    toSend = "{ \"type\": \"log\", \"val\": \"" + str + "\" }";
+    webSocket->broadcastTXT(toSend.c_str(), toSend.length());
+  }
+}
 
 const char* wifiFileName = "wifi.name";
 const char* wifiPwdName = "wifi.pwd";
@@ -185,25 +173,6 @@ void setup() {
   Serial.println("Websocket is initialized");
 
   irrecv.enableIRIn();  // Start the receiver
-
-  // Serial.println("Connecting");
-
-/*
-  client.print("currentsong\n");
-
-  Serial.println("Request sent!");
-
-  while (!client.available()) {
-    delay(50);
-  }
-  
-  while (client.connected() && client.available()) {
-    char c = client.read();
-    Serial.print(c);
-  }
-
-  Serial.println("Here you go!");
-*/
 }
 
 namespace ADB {
@@ -477,45 +446,19 @@ void playCurrYoutubeChannel() {
   });
 }
 
-void sendToMpc(const String& val) {
-    if (millis() - lastSent > 3000) {
-      doConnect();
-    }
-    client.print(val + String("\n"));
-}
-
 bool started = false;
-char brightness = 0x02;
 int lastUdpCmd = millis();
 
-WiFiUDP udp;
-IPAddress ip(192, 168, 121, 35);
-
-void udpCmd(char b1, char b2) { 
-  udp.beginPacket(ip, 8899);
-  char data[] = {b1, b2, 0x55 };
-  udp.write(data, sizeof(data));
-  udp.endPacket();
-}
+int loopCnt = 0;
+long lastMs = millis();
 
 void loop() {
-/*
-  digitalWrite(D7, HIGH);   // turn the D7 on (HIGH is the voltage level)
-  delay(10);                       // wait
-  int inputVal = analogRead (A0); // Analog Values 0 to 1024
-  //     // turn the LED off by making the voltage LOW
-  // delay(inputVal);                       // wait for a second
-
-  if (abs(inputVal - lstInputVal) > 2) {
-    String vol(String("setvol ") + String(inputVal/5));
-    sendToMpc(vol); 
-    
-    lastSent = millis();
-    lstInputVal = inputVal;
+  loopCnt++;
+  if (millis() - lastMs > 100) {
+    lastMs = millis();
+    debugPrint("loop " + String(loopCnt, DEC));
   }
-  digitalWrite(D7, LOW);
-  delay(20);
-*/
+
   webSocket->loop();
 
   if (irrecv.decode(&results)) {
@@ -623,37 +566,9 @@ void loop() {
             playCurrYoutubeChannel();
           }
         }
-      } else if (recognizedRemote == &tvtuner) {
-        if (recognized->value == "volume_up") {
-          sendToMpc("volume 1");
-        } else if (recognized->value == "volume_down") {
-          sendToMpc("volume -1");
-        } else if (recognized->value == "channel_down") {
-          sendToMpc("next");
-        } else if (recognized->value == "channel_up") {
-          sendToMpc("previous");
-        } else if (recognized->value == "mute") {
-          sendToMpc("setvol 0");
-        } else if (recognized->value == "stop") {
-          sendToMpc("stop");
-        } else if (recognized->value == "play") {
-          sendToMpc("play");
-        } else if (kk <= 9) {
-          if (millis() - lastDigitPressed < 500) {
-            // Add this digit
-            lastDigit = lastDigit * 10 + kk;
-          } 
-          lastDigitPressed = millis();
-        } 
       }
     }
-
-    if (lastDigitPressed != -1 && (millis() - lastDigitPressed > 500)) {
-      sendToMpc("play " + String(lastDigit, DEC));
-      lastDigit = 0;
-      lastDigitPressed = -1;
-    }
-    
+   
     // serialPrintUint64(results.value, BIN);
     // Serial.print(" ");
     // Serial.print(results.decode_type);
