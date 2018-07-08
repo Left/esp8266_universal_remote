@@ -1,3 +1,4 @@
+#include <Arduino.h>
 
 namespace ADB {
   const uint32_t SYNC = 0x434e5953;

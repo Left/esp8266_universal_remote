@@ -1,6 +1,5 @@
 #include <memory>
 #include <vector>
-#include <FS.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
@@ -13,11 +12,9 @@
 #include <WebSockets.h>
 #include <WebSocketsServer.h>
 
-#include <IRremoteESP8266.h>
-#include <IRrecv.h>
-#include <IRutils.h>
-
 #include "adb.h"
+#include "persistent.h"
+#include "ir_remote.h"
 
 WiFiClient fireClient;
 WiFiClient client;
@@ -26,25 +23,6 @@ WiFiClient client;
 #define BAUD_RATE 115200
 
 IRrecv irrecv(RECV_PIN); // 
-
-void stringToFile(const String& fileName, const String& value) {
-  File f = SPIFFS.open(fileName.c_str(), "w");
-  f.write((uint8_t*)value.c_str(), value.length());
-  f.close();
-}
-
-String fileToString(const String& fileName) {
-  if (SPIFFS.exists(fileName.c_str())) {
-    File f = SPIFFS.open(fileName.c_str(), "r");
-    std::vector<uint8_t> buf(f.size() + 1, 0);
-    if (f && f.size()) {
-      f.read((uint8_t*)(&buf[0]), buf.size());
-    }
-    f.close();
-    return String((const char*)(&buf[0]));
-  }
-  return String();
-}
 
 std::auto_ptr<AsyncWebServer> setupServer;
 std::auto_ptr<WebSocketsServer> webSocket;
@@ -73,8 +51,8 @@ void setup() {
 
   webSocket.reset(new WebSocketsServer(8081, "*"));
 
-  String wifiName = fileToString(wifiFileName);
-  String wifiPwd = fileToString(wifiPwdName);
+  String wifiName = persistent::fileToString(wifiFileName);
+  String wifiPwd = persistent::fileToString(wifiPwdName);
 
   if (wifiName.length() > 0 && wifiPwd.length() > 0) {
     WiFi.begin(wifiName.c_str(), wifiPwd.c_str());
@@ -118,8 +96,6 @@ void setup() {
   setupServer->begin();
 
   webSocket->onEvent([&](uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-    Serial.print("type: "); Serial.println(type);
-
     switch(type) {
       case WStype_DISCONNECTED: {
         Serial.printf("[%u] Disconnected!\n", num);
@@ -147,8 +123,8 @@ void setup() {
 
         String type = root[typeKey];
         if (type == "wificredentials") {
-          stringToFile(wifiFileName, root["ssid"]);
-          stringToFile(wifiPwdName, root["pwd"]);
+          persistent::stringToFile(wifiFileName, root["ssid"]);
+          persistent::stringToFile(wifiPwdName, root["pwd"]);
 
           webSocket->sendTXT(num, "{ \"result\":\"OK, will reboot\" }");
           ESP.reset();
