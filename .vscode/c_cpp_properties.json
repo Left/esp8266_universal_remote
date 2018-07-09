@@ -3,14 +3,18 @@
         {
             "name": "Mac",
             "includePath": [
-                "/Users/vridosh/Documents/Arduino/libraries/WebSockets/src",
-                "/Users/vridosh/Library/Arduino15/packages/esp8266/hardware/esp8266/2.4.1/cores/esp8266"
+                "${HOME}/Documents/Arduino/libraries/WebSockets/src",
+                "${HOME}/Documents/Arduino/libraries/ESPAsyncWebServer/src",
+                "${HOME}/Documents/Arduino/libraries/ESPAsyncTCP-master/src/",
+                "${HOME}/Library/Arduino15/packages/esp8266/hardware/esp8266/2.4.1/cores/esp8266"
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": false,
                 "path": [
-                    "/Users/vridosh/Documents/Arduino/libraries/WebSockets/src",
-                    "/Users/vridosh/Library/Arduino15/packages/esp8266/hardware/esp8266/2.4.1/cores/esp8266"
+                    "${HOME}/Documents/Arduino/libraries/WebSockets/src",
+                    "${HOME}/Documents/Arduino/libraries/ESPAsyncWebServer/src",
+                    "${HOME}/Documents/Arduino/libraries/ESPAsyncTCP-master/src/",
+                    "${HOME}/Library/Arduino15/packages/esp8266/hardware/esp8266/2.4.1/cores/esp8266"
                 ]
             },
             "macFrameworkPath": [
