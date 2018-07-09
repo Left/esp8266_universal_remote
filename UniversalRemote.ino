@@ -12,12 +12,11 @@
 #include <WebSockets.h>
 #include <WebSocketsServer.h>
 
+void debugPrint(const String& str);
+
 #include "adb.h"
 #include "persistent.h"
 #include "ir_remote.h"
-
-WiFiClient fireClient;
-WiFiClient client;
 
 #define RECV_PIN D2
 #define BAUD_RATE 115200
@@ -264,8 +263,8 @@ String youtubeChannels[] = {
 int youtubeChannelsCount = sizeof(youtubeChannels)/sizeof(youtubeChannels[0]);
 
 void playCurrYoutubeChannel() {
-  Serial.print("CHANNEL: " + String(youtubeChannel, DEC));
-  ADB::executeShellCmd(fireClient, "am start -a android.intent.action.VIEW -d \"http://www.youtube.com/watch?v=" + youtubeChannels[youtubeChannel] + "\" --ez force_fullscreen true", [&](const String& res) {
+  debugPrint("CHANNEL: " + String(youtubeChannel, DEC));
+  ADB::executeShellCmd("am start -a android.intent.action.VIEW -d \"http://www.youtube.com/watch?v=" + youtubeChannels[youtubeChannel] + "\" --ez force_fullscreen true", [&](const String& res) {
   });
 }
 
@@ -277,7 +276,7 @@ long lastMs = millis();
 
 void loop() {
   loopCnt++;
-  if (millis() - lastMs > 100) {
+  if (millis() - lastMs > 1000) {
     lastMs = millis();
     debugPrint("loop " + String(loopCnt, DEC));
   }
@@ -349,19 +348,19 @@ void loop() {
         if (millis() - lastCanonRemoteCmd > 300) {
           lastCanonRemoteCmd = millis();
           if (recognized->value == "startstop") {
-            ADB::executeShellCmd(fireClient, "input keyevent KEYCODE_POWER", [&](const String& res) {
+            ADB::executeShellCmd("input keyevent KEYCODE_POWER", [&](const String& res) {
 
             });
           } else if (recognized->value == "up") {
-            ADB::executeShellCmd(fireClient, "input keyevent KEYCODE_VOLUME_UP", [&](const String& res) {
+            ADB::executeShellCmd("input keyevent KEYCODE_VOLUME_UP", [&](const String& res) {
 
             });
           } else if (recognized->value == "down") {
-            ADB::executeShellCmd(fireClient, "input keyevent KEYCODE_VOLUME_DOWN", [&](const String& res) {
+            ADB::executeShellCmd("input keyevent KEYCODE_VOLUME_DOWN", [&](const String& res) {
 
             });
           } else if (recognized->value == "photo") {
-            ADB::executeShellCmd(fireClient, "reboot", [&](const String& res) {
+            ADB::executeShellCmd("reboot", [&](const String& res) {
             });
           } else if (recognized->value == "left") {
             youtubeChannel = (youtubeChannelsCount + youtubeChannel - 1) % youtubeChannelsCount;
