@@ -5,6 +5,7 @@
 
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
+#include <Ticker.h>  // Ticker Library
 
 #define DEBUG_ESP_PORT Serial
 
@@ -17,6 +18,10 @@ void debugPrint(const String& str);
 #include "adb.h"
 #include "persistent.h"
 #include "ir_remote.h"
+
+extern "C" {
+#include "user_interface.h"
+}
 
 #define RECV_PIN D2
 #define BAUD_RATE 115200
@@ -36,8 +41,13 @@ void debugPrint(const String& str) {
 
 const char* wifiFileName = "wifi.name";
 const char* wifiPwdName = "wifi.pwd";
+const char* lastChannelNum = "last.channel.name";
+
+int youtubeChannel = 0;
 
 const String typeKey("type");
+
+Ticker initADB;
 
 void setup() {
   SPIFFS.begin();
@@ -52,6 +62,10 @@ void setup() {
 
   String wifiName = persistent::fileToString(wifiFileName);
   String wifiPwd = persistent::fileToString(wifiPwdName);
+  String lastChannel = persistent::fileToString(lastChannelNum);
+  if (lastChannel.length() > 0) {
+    youtubeChannel = lastChannel.toInt();
+  }
 
   if (wifiName.length() > 0 && wifiPwd.length() > 0) {
     WiFi.begin(wifiName.c_str(), wifiPwd.c_str());
@@ -123,7 +137,7 @@ void setup() {
         String type = root[typeKey];
         if (type == "wificredentials") {
           persistent::stringToFile(wifiFileName, root["ssid"]);
-          persistent::stringToFile(wifiPwdName, root["pwd"]);
+          persistent::stringToFile(wifiPwdName, root["pwd"]);         
 
           webSocket->sendTXT(num, "{ \"result\":\"OK, will reboot\" }");
           ESP.reset();
@@ -146,16 +160,11 @@ void setup() {
   });
   webSocket->begin();
 
-  Serial.println("Websocket is initialized");
-
   irrecv.enableIRIn();  // Start the receiver
+
+  delay(10000);
+  ADB::initShellConnection(); 
 }
-
-int lstInputVal = - 100;
-int lastSent = millis() - 1000;
-
-int lastDigit = 0;
-int lastDigitPressed = -1; 
 
 decode_results results;
 
@@ -228,7 +237,7 @@ const Remote canonCamera("CanonCamera",
     Key("01010000000000010101000000010101000001000001000001010001010001010", "set"),
     Key("01010000000000010101000000010101000000000100010001010101000100010", "prev"),
     Key("01010000000000010101000000010101000000000100000001010101000101010", "next"),
-    Key("01010000000000010101000000010101000000000100000001010101000101010", "rewind"),
+    Key("01010000000000010101000000010101010100010000010000000100010100010", "rewind"),
     Key("01010000000000010101000000010101010001010000010000010000010100010", "forward"),
     Key("01010000000000010101000000010101010000000000000000010101010101010", "play"),
     Key("01010000000000010101000000010101000001000000000001010001010101010", "pause"),
@@ -239,7 +248,7 @@ const Remote canonCamera("CanonCamera",
 
 const Remote prologicTV("prologicTV",
   std::vector<Key> {
-    Key("00000000000000000101010101010101010001010000010000010000010100010", "power")
+    // Key("00000000000000000101010101010101010001010000010000010000010100010", "power")
   }
 );
 
@@ -249,22 +258,28 @@ const Remote* remotes[] = {
   &prologicTV 
 };
 
-int youtubeChannel = 0;
 String youtubeChannels[] = {
-  "K59KKnIbIaM", // Russia 24
-  "vRFFdJ3Yiuo", // Moscow 24
-  "xKuKZj65Nao", // Current Tume tv
-  "G2eFjCnFgUE", // NTV
-  "jKKKZVjha74", // Ren TV
-  // "XQqbdgNX-7k", // Muz TV
-  // "kj0G0M95J8I", // Life
-  // "z-tF2iDlQh0", // 360
+  "http://51.15.78.31:8081/tv/rossia-24/playlist.m3u8", // Russia 24
+  "http://ott-cdn.ucom.am/s68/index.m3u8", // Техно 24
+  "http://51.15.78.31:8081/tv/nat-geo-wild/playlist.m3u8", // NAT GEO WILD 
+  "http://51.15.56.212:8081/tv/discovery/playlist.m3u8", // Discovery
+  "http://163.172.180.208:8081/tv/discovery-science/playlist.m3u8", // DISCOVERY SCIENCE
+  "http://51.15.53.26:8081/tv/animal-planet/playlist.m3u8", // ANIMAL PLANET
+  "http://163.172.24.228/hls/72/index.m3u8", // Моя Планета 
+  "http://163.172.24.228/hls/01/index.m3u8", // Первый канал
+  "http://ott-cdn.ucom.am/s72/index.m3u8", // Viasat Explorer
+  "http://163.172.24.228/hls/26/index.m3u8", // Звезда
+  "http://ott-cdn.ucom.am/s70/index.m3u8", // Viasat History
+
 };
 int youtubeChannelsCount = sizeof(youtubeChannels)/sizeof(youtubeChannels[0]);
 
 void playCurrYoutubeChannel() {
   debugPrint("CHANNEL: " + String(youtubeChannel, DEC));
-  ADB::executeShellCmd("am start -a android.intent.action.VIEW -d \"http://www.youtube.com/watch?v=" + youtubeChannels[youtubeChannel] + "\" --ez force_fullscreen true", [&](const String& res) {
+  ADB::executeShellCmd("killall org.videolan.vlc", [&](const String& res) {
+    ADB::executeShellCmd("am start -n org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity -d \"" + youtubeChannels[youtubeChannel] + "\"", [&](const String& res) {
+      persistent::stringToFile(lastChannelNum, String(youtubeChannel, DEC));
+    });
   });
 }
 
@@ -278,7 +293,7 @@ void loop() {
   loopCnt++;
   if (millis() - lastMs > 1000) {
     lastMs = millis();
-    debugPrint("loop " + String(loopCnt, DEC));
+    debugPrint("loop " + String(loopCnt, DEC) + " (" + String(system_get_free_heap_size(), DEC) + " bytes free)");
   }
 
   webSocket->loop();
@@ -331,7 +346,7 @@ void loop() {
               "\" }";
 
             webSocket->broadcastTXT(toSend.c_str(), toSend.length());
-            Serial.println(toSend);
+            debugPrint(toSend);
     
             break;
           }
@@ -345,17 +360,16 @@ void loop() {
         debugPrint(intervals);
         debugPrint(decoded);
       } else if (recognizedRemote == &canonCamera) {
-        if (millis() - lastCanonRemoteCmd > 300) {
+        if (millis() - lastCanonRemoteCmd > 900) {
           lastCanonRemoteCmd = millis();
           if (recognized->value == "startstop") {
             ADB::executeShellCmd("input keyevent KEYCODE_POWER", [&](const String& res) {
-
             });
-          } else if (recognized->value == "up") {
+          } else if (recognized->value == "up" || recognized->value == "zoomt") {
             ADB::executeShellCmd("input keyevent KEYCODE_VOLUME_UP", [&](const String& res) {
 
             });
-          } else if (recognized->value == "down") {
+          } else if (recognized->value == "down" || recognized->value == "zoomw") {
             ADB::executeShellCmd("input keyevent KEYCODE_VOLUME_DOWN", [&](const String& res) {
 
             });
@@ -370,7 +384,26 @@ void loop() {
             playCurrYoutubeChannel();
           } else if (recognized->value == "set") {
             playCurrYoutubeChannel();
+          } else if (recognized->value == "rewind") {
+            youtubeChannel = 0;
+            playCurrYoutubeChannel();
+          } else if (recognized->value == "forward") {
+            youtubeChannel = 1;
+            playCurrYoutubeChannel();
+          } else if (recognized->value == "play") {
+            youtubeChannel = 2;
+            playCurrYoutubeChannel();
+          } else if (recognized->value == "pause") {
+            youtubeChannel = 3;
+            playCurrYoutubeChannel();
+          } else if (recognized->value == "stop") {
+            youtubeChannel = 4;
+            playCurrYoutubeChannel();
+          } else if (recognized->value == "disp") {
+            youtubeChannel = 5;
+            playCurrYoutubeChannel();
           }
+
         }
       }
     }

@@ -1,6 +1,8 @@
 #include <Arduino.h>
 
 namespace ADB {
+  class Message;
+
   const uint32_t SYNC = 0x434e5953;
   const uint32_t CNXN = 0x4e584e43;
   const uint32_t AUTH = 0x48545541;
@@ -17,6 +19,29 @@ namespace ADB {
     }
     byt.toUpperCase();
     return byt;
+  }
+
+  String msgToStr(Message* msg);
+
+  String payloadToStr(const char* ptr, int sz) {
+    String res = "";
+    for (int i = 0; i < sz; ++i) {
+      if (i > 0) {
+        res += " ";
+      }
+      res += charToPrint(ptr[i]);
+    }
+    res += " -- ";
+
+    for (int i = 0; i < sz; ++i) {
+      char c = ptr[i];
+      if (c >= ' ' && c < 128) {
+        res += c;
+      } else {
+        res += ".";
+      }
+    }
+    return res;
   }
 
   struct Message {
@@ -38,43 +63,6 @@ namespace ADB {
       this->magic = this->command ^ 0xffffffff;
     };
 
-    static void waitToReceive(Client& client, std::function<void(const Message& msg, const uint8_t* payload, int payloadL)> handler) {
-      // Serial.println("Waiting for " + String(sizeof(ADB::Message), DEC) + " bytes");
-      for (;client.available() < sizeof(ADB::Message);) {
-        delay(1);
-      }
-
-      // Serial.println("Reading");
-
-      Message msg;
-      client.read((uint8_t*)&msg, sizeof(Message));
-
-      // Serial.println("Read");
-
-      if (msg.data_length > 0) {
-        while(client.available() < msg.data_length) {
-          delay(10);
-        }
-      }
-
-      uint8_t* payload = (uint8_t*)malloc(msg.data_length + 1);
-      payload[msg.data_length] = 0; // Let us to treat it as char*
-      client.read(payload, msg.data_length);
-
-      String trace;
-      // Serial.print("PAYLOAD: ");
-      for (int i = 0; i < msg.data_length; ++i) {
-        // Serial.print(charToPrint(payload[i]));
-        trace += String((char) payload[i]);
-        // Serial.print(" ");
-      }
-      // Serial.println("");
-      // Serial.println(trace);
-
-      handler(msg, payload, msg.data_length);
-      free(payload);        
-    }
-
     void send(AsyncClient* client, const uint8_t* payload = NULL, int payloadL = 0) {
       this->data_length = payloadL;
       this->data_check = 0;
@@ -85,123 +73,112 @@ namespace ADB {
       String sent("SENT: ");
       // Serial.print("SENT: ");
       client->write((const char*)this, sizeof(ADB::Message));
-      for (int i = 0; i < sizeof(ADB::Message); ++i) {
-        sent += charToPrint(((const uint8_t *)this)[i]);
-        sent += " ";
-      }
+      sent += msgToStr(this);
 
       if (payloadL > 0) {
+        sent += " ";
         client->write((const char*) payload, payloadL);
-        for (int i = 0; i < payloadL; ++i) {
-          sent += charToPrint(payload[i]);
-          sent += " ";
-        }
+        // sent += payloadToStr((const char*) payload, payloadL);
+        sent += String(payloadL, DEC) + " bytes of payload";
       }
 
       debugPrint(sent);
     }
   };
 
-  std::auto_ptr<AsyncClient> fireClient;
+  std::auto_ptr<AsyncClient> adbTcpClient;
   std::vector<char> receiveBuf;
   std::vector<char> response;
 
-  static void executeShellCmd(String shellCmd, std::function<void(const String& result)> handler) {
-    debugPrint("executeShellCmd");
-    response.clear();
+  void initShellConnection() {
+  }
 
-    fireClient.reset(new AsyncClient());
-    fireClient->onError([&](void * arg, AsyncClient* client, int error) {
-      debugPrint("Connection Error");
-    });
-    fireClient->onConnect([=](void * arg, AsyncClient* client) {
-      debugPrint("Connected");
-      fireClient->onDisconnect([](void * arg, AsyncClient * c){
+  static void onDisconnect(std::function<void(const String& result)> handler) {
+        Serial.println("onDisconnect");
         debugPrint("Disconnected");
+
+        receiveBuf.resize(0);
+        adbTcpClient.reset(NULL);
+
+        // We've done
+        response.push_back(0);
+        handler(String((const char*) &(response[0])));
+        response.resize(0);
+        Serial.println("onDisconnect OK!");
+  }
+
+  static void executeShellCmd(String shellCmd, std::function<void(const String& result)> handler) {
+    if (adbTcpClient.get()) {
+      debugPrint("executeShellCmd IS ALREADY IN PROGRESS");
+      return;
+    }
+
+    debugPrint("executeShellCmd");
+
+    adbTcpClient.reset(new AsyncClient());
+    adbTcpClient->onError([=](void * arg, AsyncClient* client, int error) {
+      debugPrint("Connection Error");
+      adbTcpClient.reset(NULL);
+    });
+
+    adbTcpClient->onConnect([=](void * arg, AsyncClient* client) {
+      debugPrint("Connected");
+      adbTcpClient->onDisconnect([=](void * arg, AsyncClient * c){
+        onDisconnect(handler);
       });
 
-      fireClient->onData([=](void* arg, AsyncClient* c, void* data, size_t len) {
-        debugPrint("Data received " + String(len, DEC));
+      adbTcpClient->onData([=](void* arg, AsyncClient* c, void* data, size_t len) {
+        debugPrint("GOT WS " + String(len, DEC) + " bytes");
+
         if (len > 0) {
           receiveBuf.insert(receiveBuf.end(), (const char*)data, (const char*)data + len);
           if (receiveBuf.size() >= sizeof(Message)) {
             Message* msg = (Message*) (&receiveBuf[0]);
             const char* payload = (&receiveBuf[sizeof(Message)]);
-            char ww[5] = {0};
-            memcpy(ww, &msg->command, 4);
 
-            debugPrint("RECEIVED MSG: (" + String(ww) + ", " + msg->arg0 + ", " + msg->arg1 + " + " + msg->data_length + " bytes of payload)");
+            debugPrint("RECEIVED " + msgToStr(msg)); // + " " + 
+                // payloadToStr(payload, msg->data_length));
+
             receiveBuf.erase(receiveBuf.begin(), receiveBuf.begin() + sizeof(Message) + msg->data_length);
 
             if (msg->command == ADB::CNXN) {
               String str = String("shell: ") + shellCmd + " \x00";
-              debugPrint(shellCmd);
-              debugPrint(String(str.length()));
 
               ADB::Message msgOpen(ADB::OPEN, 2, msg->arg0);
-              msgOpen.send(fireClient.get(), (const uint8_t*)str.c_str(), str.length());
+              msgOpen.send(adbTcpClient.get(), (const uint8_t*)str.c_str(), str.length());
+
+            } else if (msg->command == ADB::OKAY) {
             } else if (msg->command == ADB::WRTE) {
               response.insert(response.end(), payload, payload + msg->data_length);
+
+              ADB::Message msgOpen(ADB::OKAY, 2, msg->arg0);
+              msgOpen.send(adbTcpClient.get());
             } else if (msg->command == ADB::CLSE) {
               response.push_back(0);
-              debugPrint("====================");
               debugPrint(String((const char*) &(response[0])));
-              debugPrint("====================");
-
-              fireClient->close();
-              fireClient.reset(NULL);
-              receiveBuf.clear();
-              response.clear();
+              adbTcpClient->close();
             }
           }
         }
-      }, NULL);
+      });
 
       String str = "host::esp8266";
       ADB::Message msg(ADB::CNXN, 
         0x01000000, // A_VERSION 
         4096 // MAX_PAYLOAD
       );
-      msg.send(fireClient.get(), (const uint8_t*)str.c_str(), str.length());  
+      msg.send(adbTcpClient.get(), (const uint8_t*)str.c_str(), str.length());  
     });
-    debugPrint("Before connect");
-    fireClient->connect("192.168.121.166", 5556);
-    debugPrint("After connect");
-/*
-    ADB::Message::waitToReceive(fireClient, [&](const ADB::Message& msg, const uint8_t* payload, int payloadL) {
-      // Serial.print("Sending CMD: ");
-        // String str = "shell:input keyevent 24 \x00";
-        // String str = "shell:am start -a android.intent.action.VIEW -d \"http://www.youtube.com/watch?v=K59KKnIbIaM\" \x00";
-        // String str = "shell:am start -n org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity -d \"https://www.youtube.com/watch?v=K59KKnIbIaM&fmt=18\" \x00";
-        String str = "shell: " + cmd + " \x00";
-        
-        ADB::Message msgOpen(ADB::OPEN, 2, msg.arg0);
-        msgOpen.send(fireClient, (uint8_t*)str.c_str(), str.length());
+    adbTcpClient->connect("192.168.121.166", 5556);
+  }
 
-        ADB::Message::waitToReceive(fireClient, [&](const ADB::Message& msg, const uint8_t* payload, int payloadL) {
-          if (msg.command == ADB::OKAY) {
-            String res;
-            for (bool close = false; !close; ) {
-              ADB::Message::waitToReceive(fireClient, [&](const ADB::Message& msg, const uint8_t* payload, int payloadL) {
-                if (msg.command == ADB::WRTE) {
-                  res += String((char*)payload);
-                } else if (msg.command == ADB::CLSE) {
-                  ADB::Message msgOpen(ADB::CLSE, 2, msg.arg0);
-                  msgOpen.send(fireClient);
+  String msgToStr(Message* msg) {
+    char ww[5] = {0};
+    memcpy(ww, &msg->command, 4);
 
-                  close = true;    
-                }
-              });
-            }
-            fireClient.stop();
-
-            // Serial.println("=====================");
-            // Serial.println(res);
-            // Serial.println("=====================");
-            handler(res);
-          }
-        });
-    });
-*/
+    return "MSG: " + 
+                String(ww) + ", arg0=" + 
+                msg->arg0 + ", arg1=" + 
+                msg->arg1;
   }
 }
