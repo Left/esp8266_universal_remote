@@ -50,10 +50,13 @@ const String typeKey("type");
 Ticker initADB;
 
 void setup() {
+  digitalWrite(LED_BUILTIN, LOW);
   SPIFFS.begin();
 
   // pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(D7, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
+
   Serial.begin(BAUD_RATE);
 
   Serial.println("Connecting to WiFi");
@@ -162,8 +165,7 @@ void setup() {
 
   irrecv.enableIRIn();  // Start the receiver
 
-  delay(10000);
-  ADB::initShellConnection(); 
+  digitalWrite(LED_BUILTIN, HIGH);
 }
 
 decode_results results;
@@ -265,6 +267,7 @@ String youtubeChannels[] = {
   "http://51.15.56.212:8081/tv/discovery/playlist.m3u8", // Discovery
   "http://163.172.180.208:8081/tv/discovery-science/playlist.m3u8", // DISCOVERY SCIENCE
   "http://51.15.53.26:8081/tv/animal-planet/playlist.m3u8", // ANIMAL PLANET
+  "http://195.88.16.15/russia1/index.m3u8", // Russia 1
   "http://163.172.24.228/hls/72/index.m3u8", // Моя Планета 
   "http://163.172.24.228/hls/01/index.m3u8", // Первый канал
   "http://ott-cdn.ucom.am/s72/index.m3u8", // Viasat Explorer
@@ -297,6 +300,10 @@ void loop() {
   }
 
   webSocket->loop();
+
+  if (millis() - lastCanonRemoteCmd > 300) {
+    digitalWrite(LED_BUILTIN, HIGH);
+  }
 
   if (irrecv.decode(&results)) {
     if (results.rawlen > 30) {
@@ -362,6 +369,8 @@ void loop() {
       } else if (recognizedRemote == &canonCamera) {
         if (millis() - lastCanonRemoteCmd > 900) {
           lastCanonRemoteCmd = millis();
+          digitalWrite(LED_BUILTIN, LOW);
+
           if (recognized->value == "startstop") {
             ADB::executeShellCmd("input keyevent KEYCODE_POWER", [&](const String& res) {
             });

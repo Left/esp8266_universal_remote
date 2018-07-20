@@ -90,9 +90,6 @@ namespace ADB {
   std::vector<char> receiveBuf;
   std::vector<char> response;
 
-  void initShellConnection() {
-  }
-
   static void onDisconnect(std::function<void(const String& result)> handler) {
         Serial.println("onDisconnect");
         debugPrint("Disconnected");
